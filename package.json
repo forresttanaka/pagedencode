@@ -1,0 +1,21 @@
+{
+  "name": "pagedencode",
+  "version": "1.0.0",
+  "description": "A test whether encodeproject.org with a clustered database can return duplicate search objects when using \"from\" in the query string.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Forrest Tanaka",
+  "license": "ISC",
+  "devDependencies": {
+    "babel-core": "^6.14.0",
+    "babel-loader": "^6.2.5",
+    "babel-preset-es2015": "^6.14.0",
+    "webpack": "^1.13.2",
+    "webpack-dev-server": "^1.15.0"
+  },
+  "dependencies": {
+    "whatwg-fetch": "^1.0.0"
+  }
+}
