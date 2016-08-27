@@ -7,7 +7,7 @@ class App extends React.Component {
     constructor(props) {
         super(props);
 
-        // Set React states
+        // Set React initial states
         this.state = {
             count: 0, // Number of experiments read so far
             total: 0 // Total number of experiments in database
@@ -19,7 +19,7 @@ class App extends React.Component {
         this.data = [];
 
         // GET initial ENCODE data
-        this.getSegment(this.start).then((data) => {
+        this.getSegment(this.start, 50).then((data) => {
             // Return an array of all the accessions
             var accessions = data['@graph'].map(result => result.accession);
 
@@ -36,14 +36,14 @@ class App extends React.Component {
             this.setState({total: experimentTypeTerm.doc_count});
         });
 
-        // Start the interval to do get requests every five seconds
+        // Start the interval to do GET requests after a delay reduce server load
         this.interval = setInterval(this.tick.bind(this), 3000);
     }
 
     // Called when the interval timer expires
     tick() {
         // Interval timer has expired. Begin a new Get request
-        this.getSegment(this.start).then(function(data) {
+        this.getSegment(this.start, 50).then(function(data) {
             // Return an array of all the accessions
             var accessions = data['@graph'].map(result => result.accession);
 
@@ -64,17 +64,22 @@ class App extends React.Component {
         }.bind(this));
     }
 
-    // Issue a GET request on ENCODE data and return a promise with an array of ENCODE experiment
-    // accessions.
-    getSegment(start) {
-        return fetch('https://test.encodedcc.org/search/?type=Experiment&format=json&from=' + start)
-        .then(response => {
-            // Convert response to JSON
-            return response.text();
-        }).then(body => {
-            // Convert JSON to Javascript object
-            return Promise.resolve(JSON.parse(body));
-        });
+    // Issue a GET request on ENCODE data and return a promise with the ENCODE search response.
+    // - start: starting search result index of data being requested. default 0.
+    // - count: Number of entries to retrieve. default is ENCODE system default. 'all' for all
+    //          entries.
+    getSegment(start, count) {
+        var url = 'https://test.encodedcc.org/search/?type=Experiment&format=json'
+            + (count ? '&limit=' + count : '')
+            + (start ? '&from=' + start : '');
+        return fetch(url)
+            .then(response => {
+                // Convert response to JSON
+                return response.text();
+            }).then(body => {
+                // Convert JSON to Javascript object
+                return Promise.resolve(JSON.parse(body));
+            });
     }
 
     componentWillUnmount() {
