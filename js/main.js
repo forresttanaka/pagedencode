@@ -1,24 +1,38 @@
 import React from 'react';
 import {render} from 'react-dom';
 import 'whatwg-fetch';
+import _ from 'underscore';
 
+
+const totalRetrieveExperiments = 200; // Total # experiments to retrieve
+const segmentSize = 50; // # experiments to retrieve per segment
 
 class App extends React.Component {
     constructor(props) {
         super(props);
 
         // Set class variables
-        this._start = 0;
-        this._max = 5;
         this._segmentedAccessions = [];
+        this._segmentedResults = [];
         this._fullAccessions = [];
-        this._interval = null;
 
         // Set React initial states
         this.state = {
-            count: 0, // Number of experiments read so far
+            count: 0, // Number of experiments read so far for segmented reads
             total: 0 // Total number of experiments in database
         };
+
+        this.getSegmentedExperiments().then(function(results) {
+            let sortedResults = results.sort((a, b) => a.startIndex - b.startIndex);
+            this._segmentedResults = _.flatten(sortedResults.map(result => this.getAccessionsFromData(result)));
+        }.bind(this));
+    }
+
+    // Given a search result, get the total number of experiments in the database
+    getExperimentTotalFromResult(result) {
+        var typeFacet = result.facets.find(facet => facet.field === 'type');
+        var experimentTypeTerm = typeFacet.terms.find(term => term.key === 'Experiment');
+        return experimentTypeTerm.doc_count;
     }
 
     // From the search result data, get the list of experiment accessions as an array of strings.
@@ -27,60 +41,49 @@ class App extends React.Component {
     }
 
     getSegmentedExperiments() {
-        // GET initial ENCODE data
-        return this.getSegment(this._start, 50).then((data) => {
+        var start = 0; // Starting index for experiments to retrieve
+        var currSegmentSize = 0; // Number of experiments to retrieve for this segment
+        var segmentedResults = []; // All search results
 
-            // Return an array of all the accessions
-            var accessions = getAccessionsFromData(data);
+        // Generate an array of search parameters
+        var searchParms = (function() {
+            let start = 0;
+            let parms = [];
+            let experimentsLeft = totalRetrieveExperiments;
+            while (experimentsLeft > 0) {
+                let currSegmentSize = experimentsLeft > segmentSize ? segmentSize : experimentsLeft;
+                parms.push({start: start, count: currSegmentSize});
+                start += currSegmentSize;
+                experimentsLeft = totalRetrieveExperiments - start;
+            }
+            return parms;
+        })();
 
-            // Got an array of accessions from retrieved data. Trigger their rendering
-            this._accessions = this._accessions.concat(accessions);
+        // Send out all our segment GET requests.
+        return searchParms.reduce(function(promise, parm) {
+            return promise.then(function() {
+                // Send the GET request for one segment
+                return this.getSegment(parm.start, parm.count);
+            }.bind(this)).then(function(result) {
+                // Got one result. Add it to our array of results in retrieval order for now.
+                segmentedResults.push(result);
 
-            this.setState({count: this._accessions.length});
+                // If we don't yet have the total number of experiments, get it from the first
+                // search results and render it.
+                if (!this.state.total) {
+                    this.setState({total: this.getExperimentTotalFromResult(result)});
+                }
 
-            // Start the next query at the end of the current one.
-            this.start += accessions.length;
-
-            // Get the total number of experiments in the database
-            var typeFacet = data.facets.find(facet => facet.field === 'type');
-            var experimentTypeTerm = typeFacet.terms.find(term => term.key === 'Experiment');
-            this.setState({total: experimentTypeTerm.doc_count});
-        });
-
-        if (!this._interval) {
-            this._interval = setInterval(this.tick.bind(this), 3000);
-        }
+                return segmentedResults;
+            }.bind(this));
+        }.bind(this), Promise.resolve());
     }
 
     getAllExperiments() {
         return this.getSegment(this._start, 1000).then((data) => {
             // Return an array of all the accessions
-            var accessions = getAccessionsFromData(data);
-        }
-    }
-
-    // Called when the interval timer expires
-    tick() {
-        // Interval timer has expired. Begin a new Get request
-        this.getSegment(this.start, 50).then(function(data) {
-            // Return an array of all the accessions
-            var accessions = data['@graph'].map(result => result.accession);
-
-            // Add the newly retrieved accessions to our current array of accessions
-            this._accessions = this._accessions.concat(accessions);
-
-            // Trigger rendering the new accessions
-            this.setState({count: this._accessions.length});
-
-            // Advance to the next group of accessions to get
-            this.start = this._accessions.length;
-
-            // If we hit the maximum number of GETs, clear the interval timer -- we're done!
-            if (--this._max === 0) {
-                clearInterval(this._interval);
-                this._interval = null;
-            }
-        }.bind(this));
+            var accessions = this.getAccessionsFromData(data);
+        });
     }
 
     // Issue a GET request on ENCODE data and return a promise with the ENCODE search response.
@@ -96,15 +99,12 @@ class App extends React.Component {
                 // Convert response to JSON
                 return response.text();
             }).then(body => {
-                // Convert JSON to Javascript object
-                return Promise.resolve(JSON.parse(body));
+                // Convert JSON to Javascript object, then attach start index so we can sort the
+                // segments later if needed
+                var result = JSON.parse(body);
+                result.startIndex = start;
+                return Promise.resolve(result);
             });
-    }
-
-    componentWillUnmount() {
-        if (this._interval) {
-            clearInterval(this._interval);
-        }
     }
 
     render() {
@@ -115,7 +115,7 @@ class App extends React.Component {
             </div>
         );
     }
-};
+}
 
 
 render(<App />, document.getElementById('app'));
