@@ -7,25 +7,36 @@ class App extends React.Component {
     constructor(props) {
         super(props);
 
+        // Set class variables
+        this._start = 0;
+        this._max = 5;
+        this._segmentedAccessions = [];
+        this._fullAccessions = [];
+        this._interval = null;
+
         // Set React initial states
         this.state = {
             count: 0, // Number of experiments read so far
             total: 0 // Total number of experiments in database
         };
+    }
 
-        // Set class variables
-        this.start = 0;
-        this.max = 5;
-        this.data = [];
+    // From the search result data, get the list of experiment accessions as an array of strings.
+    getAccessionsFromData(data) {
+        return data['@graph'].map(result => result.accession);
+    }
 
+    getSegmentedExperiments() {
         // GET initial ENCODE data
-        this.getSegment(this.start, 50).then((data) => {
+        return this.getSegment(this._start, 50).then((data) => {
+
             // Return an array of all the accessions
-            var accessions = data['@graph'].map(result => result.accession);
+            var accessions = getAccessionsFromData(data);
 
             // Got an array of accessions from retrieved data. Trigger their rendering
-            this.accessions = accessions;
-            this.setState({count: accessions.length});
+            this._accessions = this._accessions.concat(accessions);
+
+            this.setState({count: this._accessions.length});
 
             // Start the next query at the end of the current one.
             this.start += accessions.length;
@@ -36,8 +47,16 @@ class App extends React.Component {
             this.setState({total: experimentTypeTerm.doc_count});
         });
 
-        // Start the interval to do GET requests after a delay reduce server load
-        this.interval = setInterval(this.tick.bind(this), 3000);
+        if (!this._interval) {
+            this._interval = setInterval(this.tick.bind(this), 3000);
+        }
+    }
+
+    getAllExperiments() {
+        return this.getSegment(this._start, 1000).then((data) => {
+            // Return an array of all the accessions
+            var accessions = getAccessionsFromData(data);
+        }
     }
 
     // Called when the interval timer expires
@@ -48,18 +67,18 @@ class App extends React.Component {
             var accessions = data['@graph'].map(result => result.accession);
 
             // Add the newly retrieved accessions to our current array of accessions
-            this.accessions = this.accessions.concat(accessions);
+            this._accessions = this._accessions.concat(accessions);
 
             // Trigger rendering the new accessions
-            this.setState({count: this.accessions.length});
+            this.setState({count: this._accessions.length});
 
             // Advance to the next group of accessions to get
-            this.start = this.accessions.length;
+            this.start = this._accessions.length;
 
-            // If we hit the maximum number of GETs, clear the interval timer -- we're done!'
-            if (--this.max === 0) {
-                clearInterval(this.interval);
-                this.interval = null;
+            // If we hit the maximum number of GETs, clear the interval timer -- we're done!
+            if (--this._max === 0) {
+                clearInterval(this._interval);
+                this._interval = null;
             }
         }.bind(this));
     }
@@ -83,8 +102,8 @@ class App extends React.Component {
     }
 
     componentWillUnmount() {
-        if (this.interval) {
-            clearInterval(this.interval);
+        if (this._interval) {
+            clearInterval(this._interval);
         }
     }
 
