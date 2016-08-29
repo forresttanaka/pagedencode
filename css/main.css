@@ -1,7 +1,14 @@
-.results td {
-    padding: 5px;
+.results {
+    margin: 20px 0;
 }
 
-.different {
-    background-color: #ffaacc;
+.result {
+    display: inline-block;
+    width: 200px;
+    padding: 2px 5px;
+    border: 1px solid #e0e0e0;
+}
+
+.result.duplicate {
+    background-color: #ffaaaa;
 }
