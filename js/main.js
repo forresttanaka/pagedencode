@@ -4,7 +4,7 @@ import 'whatwg-fetch';
 import _ from 'underscore';
 
 
-const totalRetrieveExperiments = 200; // Total # experiments to retrieve
+const totalRetrieveExperiments = 1000; // Total # experiments to retrieve
 const segmentSize = 50; // # experiments to retrieve per segment
 
 class App extends React.Component {
@@ -12,19 +12,29 @@ class App extends React.Component {
         super(props);
 
         // Set class variables
-        this._segmentedAccessions = [];
         this._segmentedResults = [];
-        this._fullAccessions = [];
+        this._monolithicResults = [];
 
         // Set React initial states
         this.state = {
-            count: 0, // Number of experiments read so far for segmented reads
-            total: 0 // Total number of experiments in database
+            total: 0, // Total number of experiments in database
+            differenceCount: 0, // Total experiments different between segmented and monolithic
+            segmentedResults: [], // Array of accessions from segmented search requests
+            monolithicResults: [] // Array of accessions from a monolitic search request
         };
 
         this.getSegmentedExperiments().then(function(results) {
             let sortedResults = results.sort((a, b) => a.startIndex - b.startIndex);
             this._segmentedResults = _.flatten(sortedResults.map(result => this.getAccessionsFromData(result)));
+            return this.getAllExperiments();
+        }.bind(this)).then(function(results) {
+            this._monolithicResults = this.getAccessionsFromData(results);
+            var differenceCount = this._segmentedResults.reduce((prev, curr, i) => { return prev + (curr !== this._monolithicResults[i] ? 1 : 0); }, 0);
+            this.setState({
+                segmentedResults: this._segmentedResults,
+                monolithicResults: this._monolithicResults,
+                differenceCount: differenceCount
+            });
         }.bind(this));
     }
 
@@ -80,10 +90,7 @@ class App extends React.Component {
     }
 
     getAllExperiments() {
-        return this.getSegment(this._start, 1000).then((data) => {
-            // Return an array of all the accessions
-            var accessions = this.getAccessionsFromData(data);
-        });
+        return this.getSegment(0, totalRetrieveExperiments);
     }
 
     // Issue a GET request on ENCODE data and return a promise with the ENCODE search response.
@@ -101,9 +108,13 @@ class App extends React.Component {
             }).then(body => {
                 // Convert JSON to Javascript object, then attach start index so we can sort the
                 // segments later if needed
-                var result = JSON.parse(body);
-                result.startIndex = start;
-                return Promise.resolve(result);
+                try {
+                    var result = JSON.parse(body);
+                    result.startIndex = start;
+                    return Promise.resolve(result);
+                } catch(error) {
+                    console.log('ERR: %s,%o', body);
+                }
             });
     }
 
@@ -111,7 +122,20 @@ class App extends React.Component {
         return (
             <div>
                 <p>Total experiments {this.state.total}</p>
-                <p>Current experiments read {this.state.count}</p>
+                <p>Total differences {this.state.differenceCount}</p>
+                <table className="results">
+                    <tbody>
+                        {this.state.segmentedResults.map((segmentedResult, i) => {
+                            var differs = segmentedResult !== this.state.monolithicResults[i] ? 'different' : '';
+                            return (
+                                <tr key={i} className={differs}>
+                                    <td>{segmentedResult}</td>
+                                    <td>{this.state.monolithicResults[i]}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
         );
     }
