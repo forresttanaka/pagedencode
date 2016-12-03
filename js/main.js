@@ -5,12 +5,12 @@ import _ from 'underscore';
 
 
 const totalRetrieveExperiments = 20; // Total # experiments to retrieve
-const segmentSize = 50; // # experiments to retrieve per segment
+const segmentSize = 100; // # experiments to retrieve per segment
 
 class App extends React.Component {
     // From the search result data, get the list of experiment accessions as an array of strings.
-    static getAccessionsFromData(data) {
-        return data['@graph'].map(result => result.accession);
+    static getIdsFromData(data) {
+        return data['@graph'].map(result => result['@id']);
     }
 
     // Given a search result, get the total number of experiments in the database
@@ -18,10 +18,6 @@ class App extends React.Component {
         const typeFacet = result.facets.find(facet => facet.field === 'type');
         const experimentTypeTerm = typeFacet.terms.find(term => term.key === 'Experiment');
         return experimentTypeTerm.doc_count;
-    }
-
-    static getAllExperiments() {
-        return this.getSegment(0, totalRetrieveExperiments);
     }
 
     // Issue a GET request on ENCODE data and return a promise with the ENCODE search response.
@@ -60,79 +56,76 @@ class App extends React.Component {
     constructor(props) {
         super(props);
 
-        // Set React initial states
+        // List of all experiment @ids.
+        this.ids = [];
+
+        // Set React initial states.
         this.state = {
             total: 0, // Total number of experiments in database
-            differenceCount: 0, // Total experiments different between segmented and monolithic
             segmentedResults: [], // Array of accessions from segmented search requests
-            monolithicResults: [], // Array of accessions from a monolitic search request
         };
 
-        let segmentedResults = [];
-        this.getSegmentedExperiments().then((results) => {
-            const sortedResults = results.sort((a, b) => a.startIndex - b.startIndex);
-            segmentedResults = _.flatten(sortedResults.map(result => App.getAccessionsFromData(result)));
-            return App.getAllExperiments();
-        }).then((results) => {
-            const monolithicResults = App.getAccessionsFromData(results);
-            const differenceCount = segmentedResults.reduce((prev, curr, i) => prev + (curr !== monolithicResults[i] ? 1 : 0), 0);
-            this.setState({
-                segmentedResults: segmentedResults,
-                monolithicResults: monolithicResults,
-                differenceCount: differenceCount,
-            });
+        // Start the process by getting all experiment @ids in the database.
+        this.getExperimentsIds().then((results) => {
+            this.setState({ segmentedResults: results });
         });
     }
 
-    getSegmentedExperiments() {
-        const segmentedResults = []; // All search results
+    getExperimentsIds() {
+        // Send an initial GET request to search for segment of experiments, so we can get the
+        // total number of experiments.
+        return App.getSegment(0, segmentSize).then((result) => {
+            let experimentIds = [];
+            const totalExperiments = App.getExperimentTotalFromResult(result);
 
-        // Generate an array of search parameters
-        const searchParms = (() => {
-            let start = 0;
-            let experimentsLeft = totalRetrieveExperiments;
-            const parms = [];
-            while (experimentsLeft > 0) {
-                const currSegmentSize = experimentsLeft > segmentSize ? segmentSize : experimentsLeft;
-                parms.push({ start: start, count: currSegmentSize });
-                start += currSegmentSize;
-                experimentsLeft = totalRetrieveExperiments - start;
-            }
-            return parms;
-        })();
+            // Display the total number of experiments.
+            this.setState({ total: totalExperiments });
 
-        // Send out all our segment GET requests.
-        return searchParms.reduce((promise, parm) =>
-            promise.then(() =>
-                // Send the GET request for one segment
-                App.getSegment(parm.start, parm.count)
-            ).then((result) => {
-                // Got one result. Add it to our array of results in retrieval order for now.
-                segmentedResults.push(result);
+            // Add this set of experiment @ids to the array of them we're collecting.
+            experimentIds = experimentIds.concat(App.getIdsFromData(result));
 
-                // If we don't yet have the total number of experiments, get it from the first
-                // search results and render it.
-                if (!this.state.total) {
-                    this.setState({ total: App.getExperimentTotalFromResult(result) });
+            // Now get ready the experiment segment retrieval loop. We'll get a segment of
+            // experiments and extract their @ids until we have all of them. We'll do this by first
+            // making an array called `searchParms` of simple objects containing the starting index
+            // and count for the segment.
+            const searchParms = (() => {
+                let start = 0;
+                let experimentsLeft = totalExperiments - experimentIds.length;
+                const parms = [];
+                while (experimentsLeft > 0) {
+                    const currSegmentSize = experimentsLeft > segmentSize ? segmentSize : experimentsLeft;
+                    parms.push({ start: start, count: currSegmentSize });
+                    start += currSegmentSize;
+                    experimentsLeft = totalRetrieveExperiments - start;
                 }
+                return parms;
+            })();
 
-                return segmentedResults;
-            }), Promise.resolve());
+            // Send out all our segment GET requests.
+            return searchParms.reduce((promise, parm) =>
+                promise.then(() =>
+                    // Send the GET request for one segment
+                    App.getSegment(parm.start, parm.count)
+                ).then((segment) => {
+                    // Got one segment of experiments. Add it to our array of @ids in retrieval order for now.
+                    experimentIds = experimentIds.concat(App.getIdsFromData(segment));
+
+                    return experimentIds;
+                }), Promise.resolve(experimentIds)
+            );
+        });
     }
 
     render() {
         return (
             <div>
                 <p>Total experiments {this.state.total}</p>
-                <p>Total differences {this.state.differenceCount}</p>
                 <table className="results">
                     <tbody>
                         {this.state.segmentedResults.map((segmentedResult, i) => {
-                            const differs = segmentedResult !== this.state.monolithicResults[i] ? 'different' : '';
                             return (
-                                <tr key={i} className={differs}>
+                                <tr key={i}>
                                     <td>{segmentedResult}</td>
-                                    <td>{this.state.monolithicResults[i]}</td>
                                 </tr>
                             );
                         })}
