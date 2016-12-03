@@ -53,6 +53,24 @@ class App extends React.Component {
         });
     }
 
+    static getExperiment(experimentId) {
+        const url = `http://localhost:6543/${experimentId}/`;
+        return fetch(url, {
+            method: 'GET',
+            headers: {
+                Accept: 'application/json',
+            },
+        }).then((response) => {
+            // Convert response to JSON
+            if (response.ok) {
+                return response.text();
+            }
+            throw new Error('not ok');
+        }).catch((e) => {
+            console.log('OBJECT LOAD ERROR: %s', e);
+        });
+    }
+
     constructor(props) {
         super(props);
 
@@ -67,7 +85,18 @@ class App extends React.Component {
 
         // Start the process by getting all experiment @ids in the database.
         this.getExperimentsIds().then((results) => {
-            this.setState({ segmentedResults: results });
+            // Send out all our segment GET requests.
+            return results.reduce((promise, experimentId) =>
+                promise.then(() =>
+                    // Send the GET request for one segment
+                    App.getExperiment(experimentId)
+                ).then((segment) => {
+                    // Got one segment of experiments. Add it to our array of @ids in retrieval order for now.
+                    experimentIds = experimentIds.concat(App.getIdsFromData(segment));
+
+                    return experimentIds;
+                }), Promise.resolve(experimentIds)
+            );
         });
     }
 
