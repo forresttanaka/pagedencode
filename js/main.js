@@ -54,7 +54,7 @@ class App extends React.Component {
     }
 
     static getExperiment(experimentId) {
-        const url = `http://localhost:6543/${experimentId}/`;
+        const url = `http://localhost:6543${experimentId}`;
         return fetch(url, {
             method: 'GET',
             headers: {
@@ -74,29 +74,28 @@ class App extends React.Component {
     constructor(props) {
         super(props);
 
-        // List of all experiment @ids.
-        this.ids = [];
-
         // Set React initial states.
         this.state = {
             total: 0, // Total number of experiments in database
             segmentedResults: [], // Array of accessions from segmented search requests
         };
 
-        // Start the process by getting all experiment @ids in the database.
-        this.getExperimentsIds().then((results) => {
-            // Send out all our segment GET requests.
-            return results.reduce((promise, experimentId) =>
-                promise.then(() =>
-                    // Send the GET request for one segment
-                    App.getExperiment(experimentId)
-                ).then((segment) => {
-                    // Got one segment of experiments. Add it to our array of @ids in retrieval order for now.
-                    experimentIds = experimentIds.concat(App.getIdsFromData(segment));
+        const experimentStats = [];
 
-                    return experimentIds;
+        // Start the process by getting all experiment @ids in the database.
+        this.getExperimentsIds().then((experimentIds) =>
+            // Send out all our segment GET requests.
+            experimentIds.reduce((promise, experimentId) =>
+                promise.then(() =>
+                    App.getExperiment(experimentId)
+                ).then((experiment) => {
+                    experimentStats.push({ id: experimentId, size: experiment.length });
+                    return experimentStats;
                 }), Promise.resolve(experimentIds)
-            );
+            )
+        ).then((experimentResults) => {
+            console.log(experimentResults);
+            const experimentStatsSorted = experimentResults.sort((a, b) => (a.size - b.size));
         });
     }
 
@@ -104,14 +103,13 @@ class App extends React.Component {
         // Send an initial GET request to search for segment of experiments, so we can get the
         // total number of experiments.
         return App.getSegment(0, segmentSize).then((result) => {
-            let experimentIds = [];
             const totalExperiments = App.getExperimentTotalFromResult(result);
 
             // Display the total number of experiments.
             this.setState({ total: totalExperiments });
 
             // Add this set of experiment @ids to the array of them we're collecting.
-            experimentIds = experimentIds.concat(App.getIdsFromData(result));
+            let experimentIds = App.getIdsFromData(result);
 
             // Now get ready the experiment segment retrieval loop. We'll get a segment of
             // experiments and extract their @ids until we have all of them. We'll do this by first
